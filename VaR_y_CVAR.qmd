@@ -1,0 +1,124 @@
+---
+title: "Cálculo del VaR y CVaR"
+author: "Julio César López Becerra" 
+format:
+  html:
+    toc: true
+    toc-depth: 4
+  pdf:
+    toc: true
+    toc-depth: 4
+---
+
+# Introducción
+
+El objetivo de este ejercicio es calcular el valor del VaR y CVaR para una inversión en Quálitas usando: - Niveles de confianza: 95% y 98% - Horizontes: 1 a 5 días - Datos históricos: últimos 250 días respecto a una fecha de valuación (9 de septiembre de 2024) Resultados para un monto invertido dados dos enfoques: - Usando variaciones porcentuales - Usando P/L
+
+Se cargan las librerías necesarias:
+
+```{r setup, message=FALSE, warning=FALSE}
+# Liberías de yahoo finance de Github:
+source("https://raw.githubusercontent.com/OscarVDelatorreTorres/yahooFinance/main/datosMultiplesYahooFinance.R")
+# Librerías de cuantificación de riesgos en Github:
+source("https://raw.githubusercontent.com/OscarVDelatorreTorres/riskManagementSuiteR/refs/heads/main/riskManagementSuiteFunctions.R")
+# Librerías de uso general:
+library(dplyr)
+library(quantmod)
+library(tidyverse)
+library(tibble)
+library(DT)
+```
+
+Ahora descargamos los datos de Quálitas desde Yahoo Finance:
+
+```{r}
+tickerV=c("Q.MX")
+hastaD= as.Date("2024-09-09")
+deD = hastaD-(250+50)
+per="D"
+paridadFX="USDMXN=X"
+convertirFX=c(FALSE)
+
+Datos=historico_multiples_precios(tickers=tickerV,de=deD,hasta=hastaD,periodicidad=per,fxRate=paridadFX,whichToFX=convertirFX)
+precios=Datos$tablaPrecios
+rendimientos=Datos$tablaRendimientosCont
+```
+
+# Cálculo de VaR
+
+En esta sección calculamos el VaR y el CVaR usando los datos detallados anteriormente.
+
+```{r}
+monto <- 500000
+precios_250 <- tail(precios, 250)
+rendimientos_250 <- tail(rendimientos,250)
+```
+
+```{r}
+PL <- precios_250$Q.MX - lag(precios_250$Q.MX,1)
+mu <- mean(rendimientos_250$Q.MX/100)
+s <- sd(rendimientos_250$Q.MX/100)
+PL_s <- sd(PL, na.rm = TRUE)
+```
+
+```{r}
+funVaR = function(s, confianza, horizonte, mu=0){
+    z <- qnorm(1 - confianza)
+    VaR <- -(mu*horizonte + s*sqrt(horizonte)*z)
+    return(VaR)
+}
+```
+
+```{r}
+funCVaR = function(s, confianza, horizonte, mu=0){
+    alpha <- 1-confianza
+    z <- qnorm(alpha)
+    ajuste_normal <- dnorm(z)/alpha
+    CVaR <- -mu*horizonte + s*sqrt(horizonte)*ajuste_normal
+    return(CVaR)
+}
+```
+
+```{r}
+horizontes <- 1:5
+confianzas <- c(0.95, 0.98)
+resultados <- list()
+```
+
+```{r}
+for (confianza in confianzas) {
+    for(horizonte in horizontes){
+        VaR_porcentual <- funVaR(s, confianza, horizonte, mu)
+        CVaR_porcentual <- funCVaR(s, confianza, horizonte, mu)
+
+        VaR_Monetario <- VaR_porcentual * monto
+        CVaR_Monetario <- CVaR_porcentual * monto
+
+        resultados[[paste0("Confianza:", confianza, " Horizonte:", horizonte)]] <- list(
+            VaR_Porcentual = VaR_porcentual,
+            CVaR_Porcentual = CVaR_porcentual,
+            VaR_Monetario = VaR_Monetario,
+            CVaR_Monetario = CVaR_Monetario
+        )
+    }
+}
+
+```
+
+```{r}
+resumen_resultados <- bind_rows(lapply(resultados, as.data.frame), .id = "Escenario")
+```
+
+Presentación de resultados, para un monto de exposición de 500,000:
+
+```{r}
+#| eval: true
+#| results: asis
+
+if (knitr::is_html_output()) {
+  DT::datatable(resumen_resultados)
+} else {
+  knitr::kable(head(resumen_resultados, 10))
+}
+
+```
